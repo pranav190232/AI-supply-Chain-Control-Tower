@@ -1,0 +1,6 @@
+{
+  "name": "AI Supply Chain Control Tower",
+  "description": "A full-stack prototype for monitoring shipments, predicting delays, and optimizing routes using AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
