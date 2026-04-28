@@ -9,7 +9,7 @@ import ShipmentList from './components/ShipmentList';
 import PredictivePanel from './components/PredictivePanel';
 import ChatBot from './components/ChatBot';
 import { Shipment, Location } from './types';
-import { Activity, Clock, Globe2, Layers, Bot, Navigation2, CheckCircle2, Maximize, Minimize, Play, Pause, FastForward, Timer, Package, Navigation } from 'lucide-react';
+import { Activity, Clock, Globe2, Layers, Bot, Navigation2, CheckCircle2, Maximize, Minimize, Play, Pause, FastForward, Timer, Package, Navigation, RotateCcw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from './lib/utils';
 
@@ -132,6 +132,24 @@ export default function App() {
     }
   };
 
+  const resetSimulation = async () => {
+    try {
+      const res = await fetch('/api/simulation/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSimSpeed(data.config.speed);
+        setIsSimPaused(data.config.isPaused);
+        fetchShipments();
+        setOptimizedRoute(null);
+      }
+    } catch (err) {
+      console.error('Failed to reset simulation:', err);
+    }
+  };
+
   const handleDecision = async (id: string, action: 'reroute' | 'ignore', scenarioId?: string) => {
     try {
       if (action === 'reroute') {
@@ -243,6 +261,13 @@ export default function App() {
                   title={isSimPaused ? "Resume Global Simulation" : "Pause Global Simulation"}
                 >
                   {isSimPaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
+                </button>
+                <button 
+                  onClick={resetSimulation}
+                  className="p-1 rounded text-zinc-500 hover:text-white hover:bg-white/10 transition-all ml-1"
+                  title="Reset Simulation to Initial State"
+                >
+                  <RotateCcw className="w-3 h-3" />
                 </button>
                 <div className="flex bg-black/40 p-0.5 rounded border border-white/5 gap-0.5">
                   {[1, 5, 20].map(speed => (

@@ -11,6 +11,243 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const getInitialShipments = (): Shipment[] => [
+  {
+    id: "SH-001",
+    containerId: "CONT-Z9301",
+    carrier: "Maersk Line",
+    vessel: "Maersk Edmonton",
+    cargoType: "Electronics",
+    origin: "Shanghai, CN",
+    destination: "Los Angeles, US",
+    currentLocation: { lat: 31.2304, lng: 121.4737 },
+    eta: "2026-04-26T12:00:00Z",
+    timeToReach: "3 days 4 hrs",
+    status: "In Transit",
+    route: [
+      { lat: 31.2304, lng: 121.4737 },
+      { lat: 33.00, lng: -160.00 },
+      { lat: 34.0522, lng: -118.2437 },
+    ],
+    progress: 0.3,
+    history: [
+      { time: "2026-04-22T08:00:00Z", event: "Gate-in at Shanghai Terminal" },
+      { time: "2026-04-23T10:00:00Z", event: "Vessel Departure" }
+    ]
+  },
+  {
+    id: "SH-002",
+    containerId: "CONT-B4412",
+    carrier: "MSC",
+    vessel: "MSC Oscar",
+    cargoType: "Automotive Parts",
+    origin: "Hamburg, DE",
+    destination: "New York, US",
+    currentLocation: { lat: 53.5511, lng: 9.9937 },
+    eta: "2026-04-25T08:00:00Z",
+    timeToReach: "2 days 15 hrs (Delayed)",
+    status: "Delayed",
+    risk: 0.92,
+    disruption: { 
+      type: "Transit_Hub ORD", 
+      description: "Sorting delay reported in secondary terminal.",
+      severity: "warning" 
+    },
+    route: [
+      { lat: 53.5511, lng: 9.9937 },
+      { lat: 48.00, lng: -35.00 },
+      { lat: 40.7128, lng: -74.0060 },
+    ],
+    progress: 0.45,
+    history: [
+      { time: "2026-04-20T14:00:00Z", event: "Vessel Arrived at Port of Hamburg" },
+      { time: "2026-04-21T09:00:00Z", event: "Berthing Delay: Terminal Congestion" },
+      { time: "2026-04-22T12:00:00Z", event: "Vessel Departure Hamburg" }
+    ]
+  },
+  {
+    id: "SH-003",
+    containerId: "CONT-Y5522",
+    carrier: "CMA CGM",
+    vessel: "CMA CGM Antoine",
+    cargoType: "Pharmaceuticals",
+    origin: "Singapore, SG",
+    destination: "Rotterdam, NL",
+    currentLocation: { lat: 1.3521, lng: 103.8198 },
+    eta: "2026-05-01T18:00:00Z",
+    timeToReach: "8 days 14 hrs",
+    status: "At Risk",
+    risk: 0.81,
+    disruption: { 
+      type: "Weather Case_4", 
+      description: "High-altitude storm cell impacting North Pacific route.",
+      severity: "critical" 
+    },
+    route: [
+      { lat: 1.3521, lng: 103.8198 },
+      { lat: 15.00, lng: 60.00 },
+      { lat: 51.9225, lng: 4.4792 },
+    ],
+    progress: 0.15,
+    history: [
+      { time: "2026-04-23T06:00:00Z", event: "Departure Singapore Terminal" }
+    ]
+  },
+  {
+    id: "SH-004",
+    containerId: "CONT-K8890",
+    carrier: "Evergreen",
+    vessel: "Ever Given",
+    cargoType: "Consumer Goods",
+    origin: "Tokyo, JP",
+    destination: "San Francisco, US",
+    currentLocation: { lat: 35.6762, lng: 139.6503 },
+    eta: "2026-04-29T10:00:00Z",
+    timeToReach: "5 days 2 hrs",
+    status: "In Transit",
+    route: [
+      { lat: 35.6762, lng: 139.6503 },
+      { lat: 40.00, lng: 170.00 },
+      { lat: 37.7749, lng: -122.4194 }
+    ],
+    progress: 0.6,
+    history: [
+      { time: "2026-04-20T08:00:00Z", event: "Gate-in at Tokyo Bay" },
+      { time: "2026-04-21T09:00:00Z", event: "Vessel Departure" }
+    ]
+  },
+  {
+    id: "SH-005",
+    containerId: "CONT-Q1140",
+    carrier: "Hapag-Lloyd",
+    vessel: "Colombo Express",
+    cargoType: "Machinery",
+    origin: "Mumbai, IN",
+    destination: "Dubai, AE",
+    currentLocation: { lat: 25.2048, lng: 55.2708 },
+    eta: "2026-04-24T08:00:00Z",
+    timeToReach: "Arrived",
+    status: "Arrived",
+    route: [
+      { lat: 18.9667, lng: 72.8333 },
+      { lat: 22.00, lng: 65.00 },
+      { lat: 25.2048, lng: 55.2708 }
+    ],
+    progress: 1.0,
+    history: [
+      { time: "2026-04-18T05:00:00Z", event: "Departure Mumbai" },
+      { time: "2026-04-24T07:15:00Z", event: "Docked at Jebel Ali" }
+    ]
+  },
+  {
+    id: "SH-006",
+    containerId: "CONT-P9988",
+    carrier: "ONE",
+    vessel: "ONE Apus",
+    cargoType: "Agricultural",
+    origin: "Cape Town, ZA",
+    destination: "London, UK",
+    currentLocation: { lat: -33.9249, lng: 18.4241 },
+    eta: "2026-05-10T14:00:00Z",
+    timeToReach: "16 days (Delayed)",
+    status: "Delayed",
+    risk: 0.98,
+    disruption: { 
+      type: "Port Strike_LHR", 
+      description: "Industrial action at destination terminal.",
+      severity: "warning" 
+    },
+    route: [
+      { lat: -33.9249, lng: 18.4241 },
+      { lat: 0.00, lng: -10.00 },
+      { lat: 51.5074, lng: -0.1278 }
+    ],
+    progress: 0.1,
+    history: [
+      { time: "2026-04-24T01:00:00Z", event: "Departure Table Bay" }
+    ]
+  },
+  {
+    id: "SH-007",
+    containerId: "CONT-M7721",
+    carrier: "Yang Ming",
+    vessel: "YM Witness",
+    cargoType: "Textiles",
+    origin: "Sydney, AU",
+    destination: "Los Angeles, US",
+    currentLocation: { lat: -33.8688, lng: 151.2093 },
+    eta: "2026-05-08T22:00:00Z",
+    timeToReach: "14 days 14 hrs",
+    status: "In Transit",
+    route: [
+      { lat: -33.8688, lng: 151.2093 },
+      { lat: -10.00, lng: 180.00 },
+      { lat: 20.00, lng: -150.00 },
+      { lat: 34.0522, lng: -118.2437 }
+    ],
+    progress: 0.2,
+    history: [
+      { time: "2026-04-23T18:00:00Z", event: "Sailing from Port Botany" }
+    ]
+  },
+  {
+    id: "SH-008",
+    containerId: "CONT-F3320",
+    carrier: "ZIM",
+    vessel: "ZIM San Diego",
+    cargoType: "Chemicals",
+    origin: "Rio de Janeiro, BR",
+    destination: "Miami, US",
+    currentLocation: { lat: -22.9068, lng: -43.1729 },
+    eta: "2026-05-02T16:00:00Z",
+    timeToReach: "8 days 8 hrs",
+    status: "At Risk",
+    risk: 0.72,
+    disruption: { 
+      type: "Hurricane_Warn", 
+      description: "Category 2 storm developing in Caribbean trajectory.",
+      severity: "critical" 
+    },
+    route: [
+      { lat: -22.9068, lng: -43.1729 },
+      { lat: 10.00, lng: -60.00 },
+      { lat: 25.7617, lng: -80.1918 }
+    ],
+    progress: 0.05,
+    history: [
+      { time: "2026-04-24T04:00:00Z", event: "Vessel Departure Rio" }
+    ]
+  },
+  {
+    id: "SH-009",
+    containerId: "CONT-D4411",
+    carrier: "Cosco",
+    vessel: "Cosco Glory",
+    cargoType: "Raw Materials",
+    origin: "Hong Kong, HK",
+    destination: "Vancouver, CA",
+    currentLocation: { lat: 22.3193, lng: 114.1694 },
+    eta: "2026-05-05T09:00:00Z",
+    timeToReach: "11 days 1 hrs",
+    status: "In Transit",
+    route: [
+      { lat: 22.3193, lng: 114.1694 },
+      { lat: 45.00, lng: 170.00 },
+      { lat: 49.2827, lng: -123.1207 }
+    ],
+    progress: 0.25,
+    history: [
+      { time: "2026-04-22T10:00:00Z", event: "Gate-in at Victoria Harbour" },
+      { time: "2026-04-23T11:30:00Z", event: "Departure" }
+    ]
+  }
+];
+
+const INITIAL_SIM_CONFIG = {
+  speed: 1,
+  isPaused: false
+};
+
 async function startServer() {
   const logFile = path.join(process.cwd(), "server_startup.log");
   const log = (msg: string) => {
@@ -31,252 +268,15 @@ async function startServer() {
 
     app.use(express.json());
 
+    // Mock Data Store
+    let shipments: Shipment[] = getInitialShipments();
+    let simConfig = { ...INITIAL_SIM_CONFIG };
+
     // Logging middleware
     app.use((req, res, next) => {
       log(`${req.method} ${req.url}`);
       next();
     });
-
-    // Mock Data Store
-    let shipments: Shipment[] = [
-      {
-        id: "SH-001",
-        containerId: "CONT-Z9301",
-        carrier: "Maersk Line",
-        vessel: "Maersk Edmonton",
-        cargoType: "Electronics",
-        origin: "Shanghai, CN",
-        destination: "Los Angeles, US",
-        currentLocation: { lat: 31.2304, lng: 121.4737 },
-        eta: "2026-04-26T12:00:00Z",
-        timeToReach: "3 days 4 hrs",
-        status: "In Transit",
-        route: [
-          { lat: 31.2304, lng: 121.4737 },
-          { lat: 33.00, lng: -160.00 },
-          { lat: 34.0522, lng: -118.2437 },
-        ],
-        progress: 0.3,
-        history: [
-          { time: "2026-04-22T08:00:00Z", event: "Gate-in at Shanghai Terminal" },
-          { time: "2026-04-23T10:00:00Z", event: "Vessel Departure" }
-        ]
-      },
-      {
-        id: "SH-002",
-        containerId: "CONT-B4412",
-        carrier: "MSC",
-        vessel: "MSC Oscar",
-        cargoType: "Automotive Parts",
-        origin: "Hamburg, DE",
-        destination: "New York, US",
-        currentLocation: { lat: 53.5511, lng: 9.9937 },
-        eta: "2026-04-25T08:00:00Z",
-        timeToReach: "2 days 15 hrs (Delayed)",
-        status: "Delayed",
-        risk: 0.92,
-        disruption: { 
-          type: "Transit_Hub ORD", 
-          description: "Sorting delay reported in secondary terminal.",
-          severity: "warning" 
-        },
-        route: [
-          { lat: 53.5511, lng: 9.9937 },
-          { lat: 48.00, lng: -35.00 },
-          { lat: 40.7128, lng: -74.0060 },
-        ],
-        progress: 0.45,
-        history: [
-          { time: "2026-04-20T14:00:00Z", event: "Vessel Arrived at Port of Hamburg" },
-          { time: "2026-04-21T09:00:00Z", event: "Berthing Delay: Terminal Congestion" },
-          { time: "2026-04-22T12:00:00Z", event: "Vessel Departure Hamburg" }
-        ]
-      },
-      {
-        id: "SH-003",
-        containerId: "CONT-Y5522",
-        carrier: "CMA CGM",
-        vessel: "CMA CGM Antoine",
-        cargoType: "Pharmaceuticals",
-        origin: "Singapore, SG",
-        destination: "Rotterdam, NL",
-        currentLocation: { lat: 1.3521, lng: 103.8198 },
-        eta: "2026-05-01T18:00:00Z",
-        timeToReach: "8 days 14 hrs",
-        status: "At Risk",
-        risk: 0.81,
-        disruption: { 
-          type: "Weather Case_4", 
-          description: "High-altitude storm cell impacting North Pacific route.",
-          severity: "critical" 
-        },
-        route: [
-          { lat: 1.3521, lng: 103.8198 },
-          { lat: 15.00, lng: 60.00 },
-          { lat: 51.9225, lng: 4.4792 },
-        ],
-        progress: 0.15,
-        history: [
-          { time: "2026-04-23T06:00:00Z", event: "Departure Singapore Terminal" }
-        ]
-      },
-      {
-        id: "SH-004",
-        containerId: "CONT-K8890",
-        carrier: "Evergreen",
-        vessel: "Ever Given",
-        cargoType: "Consumer Goods",
-        origin: "Tokyo, JP",
-        destination: "San Francisco, US",
-        currentLocation: { lat: 35.6762, lng: 139.6503 },
-        eta: "2026-04-29T10:00:00Z",
-        timeToReach: "5 days 2 hrs",
-        status: "In Transit",
-        route: [
-          { lat: 35.6762, lng: 139.6503 },
-          { lat: 40.00, lng: 170.00 },
-          { lat: 37.7749, lng: -122.4194 }
-        ],
-        progress: 0.6,
-        history: [
-          { time: "2026-04-20T08:00:00Z", event: "Gate-in at Tokyo Bay" },
-          { time: "2026-04-21T09:00:00Z", event: "Vessel Departure" }
-        ]
-      },
-      {
-        id: "SH-005",
-        containerId: "CONT-Q1140",
-        carrier: "Hapag-Lloyd",
-        vessel: "Colombo Express",
-        cargoType: "Machinery",
-        origin: "Mumbai, IN",
-        destination: "Dubai, AE",
-        currentLocation: { lat: 25.2048, lng: 55.2708 },
-        eta: "2026-04-24T08:00:00Z",
-        timeToReach: "Arrived",
-        status: "Arrived",
-        route: [
-          { lat: 18.9667, lng: 72.8333 },
-          { lat: 22.00, lng: 65.00 },
-          { lat: 25.2048, lng: 55.2708 }
-        ],
-        progress: 1.0,
-        history: [
-          { time: "2026-04-18T05:00:00Z", event: "Departure Mumbai" },
-          { time: "2026-04-24T07:15:00Z", event: "Docked at Jebel Ali" }
-        ]
-      },
-      {
-        id: "SH-006",
-        containerId: "CONT-P9988",
-        carrier: "ONE",
-        vessel: "ONE Apus",
-        cargoType: "Agricultural",
-        origin: "Cape Town, ZA",
-        destination: "London, UK",
-        currentLocation: { lat: -33.9249, lng: 18.4241 },
-        eta: "2026-05-10T14:00:00Z",
-        timeToReach: "16 days (Delayed)",
-        status: "Delayed",
-        risk: 0.98,
-        disruption: { 
-          type: "Port Strike_LHR", 
-          description: "Industrial action at destination terminal.",
-          severity: "warning" 
-        },
-        route: [
-          { lat: -33.9249, lng: 18.4241 },
-          { lat: 0.00, lng: -10.00 },
-          { lat: 51.5074, lng: -0.1278 }
-        ],
-        progress: 0.1,
-        history: [
-          { time: "2026-04-24T01:00:00Z", event: "Departure Table Bay" }
-        ]
-      },
-      {
-        id: "SH-007",
-        containerId: "CONT-M7721",
-        carrier: "Yang Ming",
-        vessel: "YM Witness",
-        cargoType: "Textiles",
-        origin: "Sydney, AU",
-        destination: "Los Angeles, US",
-        currentLocation: { lat: -33.8688, lng: 151.2093 },
-        eta: "2026-05-08T22:00:00Z",
-        timeToReach: "14 days 14 hrs",
-        status: "In Transit",
-        route: [
-          { lat: -33.8688, lng: 151.2093 },
-          { lat: -10.00, lng: 180.00 },
-          { lat: 20.00, lng: -150.00 },
-          { lat: 34.0522, lng: -118.2437 }
-        ],
-        progress: 0.2,
-        history: [
-          { time: "2026-04-23T18:00:00Z", event: "Sailing from Port Botany" }
-        ]
-      },
-      {
-        id: "SH-008",
-        containerId: "CONT-F3320",
-        carrier: "ZIM",
-        vessel: "ZIM San Diego",
-        cargoType: "Chemicals",
-        origin: "Rio de Janeiro, BR",
-        destination: "Miami, US",
-        currentLocation: { lat: -22.9068, lng: -43.1729 },
-        eta: "2026-05-02T16:00:00Z",
-        timeToReach: "8 days 8 hrs",
-        status: "At Risk",
-        risk: 0.72,
-        disruption: { 
-          type: "Hurricane_Warn", 
-          description: "Category 2 storm developing in Caribbean trajectory.",
-          severity: "critical" 
-        },
-        route: [
-          { lat: -22.9068, lng: -43.1729 },
-          { lat: 10.00, lng: -60.00 },
-          { lat: 25.7617, lng: -80.1918 }
-        ],
-        progress: 0.05,
-        history: [
-          { time: "2026-04-24T04:00:00Z", event: "Vessel Departure Rio" }
-        ]
-      },
-      {
-        id: "SH-009",
-        containerId: "CONT-D4411",
-        carrier: "Cosco",
-        vessel: "Cosco Glory",
-        cargoType: "Raw Materials",
-        origin: "Hong Kong, HK",
-        destination: "Vancouver, CA",
-        currentLocation: { lat: 22.3193, lng: 114.1694 },
-        eta: "2026-05-05T09:00:00Z",
-        timeToReach: "11 days 1 hrs",
-        status: "In Transit",
-        route: [
-          { lat: 22.3193, lng: 114.1694 },
-          { lat: 45.00, lng: 170.00 },
-          { lat: 49.2827, lng: -123.1207 }
-        ],
-        progress: 0.25,
-        history: [
-          { time: "2026-04-22T10:00:00Z", event: "Gate-in at Victoria Harbour" },
-          { time: "2026-04-23T11:30:00Z", event: "Departure" }
-        ]
-      }
-    ];
-
-    log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    
-    // Simulation Config
-    let simConfig = {
-      speed: 1,
-      isPaused: false
-    };
 
     // API Routes
     app.get("/api/health", (req, res) => {
@@ -293,6 +293,13 @@ async function startServer() {
       if (typeof isPaused === "boolean") simConfig.isPaused = isPaused;
       log(`Simulation config updated: Speed=${simConfig.speed}x, Paused=${simConfig.isPaused}`);
       res.json(simConfig);
+    });
+
+    app.post("/api/simulation/reset", (req, res) => {
+      shipments = getInitialShipments();
+      simConfig = { ...INITIAL_SIM_CONFIG };
+      log("Simulation reset to initial state");
+      res.json({ success: true, config: simConfig, shipmentsCount: shipments.length });
     });
 
     app.get("/api/shipments", (req, res) => {
@@ -431,7 +438,7 @@ async function startServer() {
               const currentEta = new Date(shipment.eta);
               let hoursToAdd = -14;
               let displayText = "2 DAYS 0 HRS (ACCELERATED)";
-
+              
               if (scenarioId === 'sc-1') { hoursToAdd = -18; displayText = "1 DAY 18 HRS (AGGRESSIVE)"; }
               else if (scenarioId === 'sc-2') { hoursToAdd = 4; displayText = "3 DAYS 4 HRS (ECONOMY)"; }
               else if (scenarioId === 'sc-3') { hoursToAdd = 12; displayText = "3 DAYS 12 HRS (SAFE)"; }
