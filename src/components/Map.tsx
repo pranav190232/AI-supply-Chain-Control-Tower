@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, Tooltip, useMap, Circle } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, Tooltip, useMap, Circle, CircleMarker } from 'react-leaflet';
 import L from 'leaflet';
 import { Shipment, Location } from '../types';
 import { Package, Navigation2, Zap, Clock, CloudSun, CloudRain, Wind, CloudFog, Sun, Thermometer } from 'lucide-react';
@@ -32,25 +32,43 @@ const TRAFFIC_HOTSPOTS = [
   { center: [35.6, 139.7], radius: 240000, density: 'HIGH', label: 'TOKYO BAY' }
 ];
 
-function interpolate(p1: Location, p2: Location, progress: number) {
-  return {
-    lat: p1.lat + (p2.lat - p1.lat) * progress,
-    lng: p1.lng + (p2.lng - p1.lng) * progress
-  };
-}
-
 function getPointOnPath(path: Location[], progress: number) {
   if (!path || path.length === 0) return null;
   if (path.length === 1) return path[0];
+  if (progress >= 1) return path[path.length - 1];
+  if (progress <= 0) return path[0];
   
-  const totalSegments = path.length - 1;
+  // Normalize the path for interpolation so it doesn't wrap the wrong way
+  const normalized = normalizePoints(path);
+  const totalSegments = normalized.length - 1;
   const segmentIndex = Math.min(Math.floor(progress * totalSegments), totalSegments - 1);
   const segmentProgress = (progress * totalSegments) - segmentIndex;
   
-  return interpolate(path[segmentIndex], path[segmentIndex + 1], segmentProgress);
+  const p1 = { lat: normalized[segmentIndex][0], lng: normalized[segmentIndex][1] };
+  const p2 = { lat: normalized[segmentIndex + 1][0], lng: normalized[segmentIndex + 1][1] };
+  
+  return interpolate(p1, p2, segmentProgress);
 }
 
-// Helper to normalize coordinates for anti-meridian wrapping in Leaflet
+function mercY(lat: number) {
+  const rad = lat * Math.PI / 180;
+  return Math.log(Math.tan(Math.PI / 4 + rad / 2));
+}
+
+function invMercY(y: number) {
+  const rad = 2 * Math.atan(Math.exp(y)) - Math.PI / 2;
+  return rad * 180 / Math.PI;
+}
+
+function interpolate(p1: Location, p2: Location, progress: number) {
+  const y1 = mercY(p1.lat);
+  const y2 = mercY(p2.lat);
+  const lat = invMercY(y1 + (y2 - y1) * progress);
+  return {
+    lat: lat,
+    lng: p1.lng + (p2.lng - p1.lng) * progress
+  };
+}
 function normalizePoints(path: Location[]): [number, number][] {
   if (path.length === 0) return [];
   const normalized: [number, number][] = [];
@@ -234,6 +252,7 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
     if (s.status === 'Delayed' || isHighRisk) return '#ef4444'; // Red
     if (s.status === 'At Risk') return '#f59e0b'; // Amber
     if (s.status === 'Rerouted') return '#a855f7'; // Purple
+    if (s.status === 'Arrived') return '#10b981'; // Green
     return '#38bdf8'; // Blue
   };
 
@@ -264,208 +283,246 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
           // Interpolate current position on the normalized path for smooth motion
           const currentPos = (() => {
             if (points.length < 2) return points[0] ? { lat: points[0][0], lng: points[0][1] } : null;
+            if (s.progress >= 1) return { lat: points[points.length - 1][0], lng: points[points.length - 1][1] };
+            if (s.progress <= 0) return { lat: points[0][0], lng: points[0][1] };
+            
             const totalSegs = points.length - 1;
             const segIdx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
             const segProg = (s.progress * totalSegs) - segIdx;
             const start = points[segIdx];
             const end = points[segIdx + 1];
+            
+            const y1 = mercY(start[0]);
+            const y2 = mercY(end[0]);
+            
             return {
-              lat: start[0] + (end[0] - start[0]) * segProg,
+              lat: invMercY(y1 + (y2 - y1) * segProg),
               lng: start[1] + (end[1] - start[1]) * segProg
             };
           })();
           
           const color = getStatusColor(s);
 
+          const copies = [-360, 0, 360];
+
           return (
             <React.Fragment key={s.id}>
-              {/* Route Highlight Glow */}
-              {isSelected && (
-                <>
-                  <Polyline 
-                    positions={points}
-                    pathOptions={{
-                      color: color,
-                      weight: 24,
-                      opacity: 0.05,
-                      lineCap: 'round',
-                      lineJoin: 'round',
-                      className: 'route-glow-outer'
-                    }}
-                    interactive={false}
-                  />
-                  <Polyline 
-                    positions={points}
-                    pathOptions={{
-                      color: color,
-                      weight: 12,
-                      opacity: 0.15,
-                      lineCap: 'round',
-                      lineJoin: 'round',
-                      className: 'route-glow-inner'
-                    }}
-                    interactive={false}
-                  />
-                </>
-              )}
+              {copies.map(offset => {
+                const offsetPoints = points.map(p => [p[0], p[1] + offset] as [number, number]);
+                const offsetPos = currentPos ? { lat: currentPos.lat, lng: currentPos.lng + offset } : null;
+                const offsetOriginal = s.newRoute ? normalizePoints(s.route).map(p => [p[0], p[1] + offset] as [number, number]) : null;
 
-              {/* Main Route Polyline */}
-              <Polyline 
-                positions={points}
-                pathOptions={{
-                  color: isSelected ? color : '#27272a',
-                  weight: isSelected ? 4 : 1.5,
-                  dashArray: isSelected ? 'none' : '4, 8',
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                  opacity: isSelected ? 1 : (hasSelection ? 0.05 : 0.2),
-                  transition: 'opacity 0.5s ease-in-out'
-                } as any}
-                eventHandlers={{
-                  click: (e) => onSelect(s.id, [e.latlng.lat, e.latlng.lng])
-                }}
-              />
+                return (
+                  <React.Fragment key={`${s.id}-${offset}`}>
+                    {/* Route Highlight Glow */}
+                    {isSelected && (
+                      <>
+                        <Polyline 
+                          positions={offsetPoints}
+                          pathOptions={{
+                            color: color,
+                            weight: 24,
+                            opacity: 0.05,
+                            lineCap: 'round',
+                            lineJoin: 'round',
+                            className: 'route-glow-outer'
+                          }}
+                          interactive={false}
+                        />
+                        <Polyline 
+                          positions={offsetPoints}
+                          pathOptions={{
+                            color: color,
+                            weight: 12,
+                            opacity: 0.15,
+                            lineCap: 'round',
+                            lineJoin: 'round',
+                            className: 'route-glow-inner'
+                          }}
+                          interactive={false}
+                        />
+                      </>
+                    )}
 
-              {/* Original Route if Rerouted */}
-              {s.newRoute && isSelected && (
-                <Polyline 
-                  positions={normalizePoints(s.route)}
-                  pathOptions={{
-                    color: '#27272a',
-                    weight: 1,
-                    dashArray: '2, 4',
-                    opacity: 0.3
-                  }}
-                />
-              )}
-
-              {/* Focus Pulse for Selected Shipment */}
-              {isSelected && currentPos && (
-                <Circle 
-                  center={[currentPos.lat, currentPos.lng]}
-                  radius={120000}
-                  pathOptions={{
-                    fillColor: color,
-                    fillOpacity: 0.1,
-                    color: color,
-                    weight: 1,
-                    dashArray: '5, 5',
-                    className: 'animate-pulse'
-                  }}
-                />
-              )}
-
-              {/* Next Waypoint Marker */}
-              {isSelected && points.length > 0 && s.progress < 1 && (
-                (() => {
-                  const totalSegs = points.length - 1;
-                  const idx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
-                  const next = points[idx + 1];
-                  if (!next) return null;
-                  
-                  return (
-                    <Circle 
-                      center={[next[0], next[1]]}
-                      radius={30000}
+                    {/* Main Route Polyline */}
+                    <Polyline 
+                      positions={offsetPoints}
                       pathOptions={{
-                        fillColor: color,
-                        fillOpacity: 0.8,
-                        color: 'white',
-                        weight: 2,
-                        className: 'animate-pulse'
+                        color: isSelected ? color : '#3f3f46', // Zinc-700 instead of 800 for better visibility
+                        weight: isSelected ? 4 : 2.5,
+                        dashArray: isSelected ? 'none' : '4, 8',
+                        lineCap: 'round',
+                        lineJoin: 'round',
+                        opacity: isSelected ? 1 : (hasSelection ? 0.2 : 0.6),
+                        transition: 'opacity 0.3s ease'
+                      } as any}
+                      eventHandlers={{
+                        click: (e) => onSelect(s.id, [e.latlng.lat, e.latlng.lng])
                       }}
-                    >
-                      <Tooltip permanent direction="top" offset={[0, -10]} opacity={1}>
-                        <div className="flex flex-col items-center bg-black/90 backdrop-blur-sm border border-white/20 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-white uppercase tracking-tighter">
-                          <span>NEXT WAYPOINT</span>
-                        </div>
-                      </Tooltip>
-                    </Circle>
-                  );
-                })()
-              )}
+                    />
 
-              {/* Moving Shipment Dot Indicator */}
-              {currentPos && (
-                <Marker 
-                  position={[currentPos.lat, currentPos.lng]}
-                  eventHandlers={{ 
-                    click: (e) => {
-                      onSelect(s.id, [e.latlng.lat, e.latlng.lng]);
-                    } 
-                  }}
-                  icon={L.divIcon({
-                    className: 'custom-div-icon',
-                    html: `
-                      <div class="relative flex items-center justify-center">
-                        ${isSelected ? `<div class="absolute w-8 h-8 rounded-full bg-${color}/20 animate-ping" style="background-color: ${color}22"></div>` : ''}
-                        <div class="shipment-dot" style="background: ${color}; border-color: ${isSelected ? 'white' : 'white/20'}; box-shadow: 0 0 ${isSelected ? '20px' : '5px'} ${color}, ${isSelected ? '0 0 40px ' + color + '44' : 'none'}; transform: scale(${isSelected ? '1.2' : '1'})"></div>
-                        ${isSelected ? `
-                          <div class="absolute -top-12 bg-black/90 backdrop-blur-md border border-${color}/40 px-2 py-1 rounded shadow-2xl z-50 flex flex-col items-center">
-                            <div class="text-[10px] font-bold text-white uppercase font-mono tracking-tighter whitespace-nowrap">${s.id}</div>
-                            <div class="text-[7px] text-zinc-400 font-mono uppercase tracking-widest whitespace-nowrap">${s.status}</div>
+                    {/* Waypoint Dots */}
+                    {offsetPoints.map((pt, i) => (
+                      <CircleMarker
+                        key={`pt-${i}`}
+                        center={pt}
+                        radius={isSelected ? 3.5 : 2.5}
+                        pathOptions={{
+                          fillColor: '#09090b', // Zinc-950
+                          fillOpacity: 1,
+                          color: isSelected ? color : '#71717a', // Zinc-500
+                          weight: 1.5,
+                          opacity: isSelected ? 1 : (hasSelection ? 0.3 : 0.6)
+                        }}
+                        eventHandlers={{
+                          click: () => onSelect(s.id, [pt[0], pt[1]])
+                        }}
+                      />
+                    ))}
+
+                    {/* Original Route if Rerouted */}
+                    {offsetOriginal && isSelected && (
+                      <Polyline 
+                        positions={offsetOriginal}
+                        pathOptions={{
+                          color: '#27272a',
+                          weight: 1,
+                          dashArray: '2, 4',
+                          opacity: 0.3
+                        }}
+                      />
+                    )}
+
+                    {/* Focus Pulse for Selected Shipment */}
+                    {isSelected && offsetPos && (
+                      <Circle 
+                        center={[offsetPos.lat, offsetPos.lng]}
+                        radius={120000}
+                        pathOptions={{
+                          fillColor: color,
+                          fillOpacity: 0.1,
+                          color: color,
+                          weight: 1,
+                          dashArray: '5, 5',
+                          className: 'animate-pulse'
+                        }}
+                      />
+                    )}
+
+                    {/* Next Waypoint Marker */}
+                    {isSelected && points.length > 0 && s.progress < 1 && (
+                      (() => {
+                        const totalSegs = points.length - 1;
+                        const idx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
+                        const next = offsetPoints[idx + 1];
+                        if (!next) return null;
+                        
+                        return (
+                          <Circle 
+                            center={[next[0], next[1]]}
+                            radius={30000}
+                            pathOptions={{
+                              fillColor: color,
+                              fillOpacity: 0.8,
+                              color: 'white',
+                              weight: 2,
+                              className: 'animate-pulse'
+                            }}
+                          >
+                            <Tooltip permanent direction="top" offset={[0, -10]} opacity={1}>
+                              <div className="flex flex-col items-center bg-black/90 backdrop-blur-sm border border-white/20 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-white uppercase tracking-tighter">
+                                <span>NEXT WAYPOINT</span>
+                              </div>
+                            </Tooltip>
+                          </Circle>
+                        );
+                      })()
+                    )}
+
+                    {/* Moving Shipment Dot Indicator */}
+                    {offsetPos && (
+                      <Marker 
+                        position={[offsetPos.lat, offsetPos.lng]}
+                        eventHandlers={{ 
+                          click: (e) => {
+                            onSelect(s.id, [e.latlng.lat, e.latlng.lng]);
+                          } 
+                        }}
+                        icon={L.divIcon({
+                          className: 'custom-div-icon',
+                          html: `
+                            <div class="relative flex items-center justify-center w-full h-full">
+                              ${isSelected ? `<div class="absolute w-8 h-8 rounded-full animate-ping" style="background-color: ${color}44"></div>` : ''}
+                              <div class="shipment-dot" style="background: ${color}; border-color: ${isSelected ? 'white' : 'rgba(255,255,255,0.4)'}; box-shadow: 0 0 ${isSelected ? '20px' : '5px'} ${color}, ${isSelected ? '0 0 40px ' + color + '44' : 'none'}; transform: scale(${isSelected ? '1.2' : '1'})"></div>
+                              ${isSelected ? `
+                                <div class="absolute -top-12 bg-black/90 backdrop-blur-md border border-white/20 px-2 py-1 rounded shadow-2xl z-50 flex flex-col items-center">
+                                  <div class="text-[10px] font-bold text-white uppercase font-mono tracking-tighter whitespace-nowrap">${s.id}</div>
+                                  <div class="text-[7px] text-zinc-400 font-mono uppercase tracking-widest whitespace-nowrap">${s.status}</div>
+                                </div>
+                              ` : ''}
+                            </div>
+                          `,
+                          iconSize: [24,24],
+                          iconAnchor: [12, 12]
+                        })}
+                      >
+                        <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                          <div className="flex flex-col gap-1 bg-black/90 backdrop-blur-md text-white px-3 py-2 rounded border border-white/20 font-mono shadow-2xl min-w-[120px]">
+                            <div className="flex justify-between items-center border-b border-white/10 pb-1 mb-1">
+                              <span className="text-[10px] font-bold text-white uppercase tracking-widest">{s.id}</span>
+                              <span className={cn("text-[8px] font-bold uppercase", s.status === 'Delayed' ? 'text-red-400' : 'text-blue-400')}>{s.status}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-2.5 h-2.5 text-zinc-500" />
+                              <span className="text-[9px] uppercase tracking-wider text-zinc-300">ETA: {new Date(s.eta).toLocaleDateString()}</span>
+                            </div>
+                            {isSelected && activeRoute.length > 0 && (
+                              <div className="flex items-center gap-2 border-t border-white/5 pt-1 mt-1">
+                                <Navigation2 className="w-2.5 h-2.5 text-bento-accent fill-current" />
+                                <div className="flex flex-col">
+                                  <span className="text-[7px] text-zinc-500 uppercase tracking-tighter">NEXT WAYPOINT</span>
+                                  <span className="text-[8px] text-white font-bold opacity-80">
+                                    {(() => {
+                                      const totalSegs = activeRoute.length - 1;
+                                      const idx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
+                                      const next = activeRoute[idx + 1];
+                                      return next ? `${next.lat.toFixed(2)}°, ${next.lng.toFixed(2)}°` : 'ARRIVING';
+                                    })()}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        ` : ''}
-                      </div>
-                    `,
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 12]
-                  })}
-                >
-                  <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                    <div className="flex flex-col gap-1 bg-black/90 backdrop-blur-md text-white px-3 py-2 rounded border border-white/20 font-mono shadow-2xl min-w-[120px]">
-                      <div className="flex justify-between items-center border-b border-white/10 pb-1 mb-1">
-                        <span className="text-[10px] font-bold text-white uppercase tracking-widest">{s.id}</span>
-                        <span className={cn("text-[8px] font-bold uppercase", s.status === 'Delayed' ? 'text-red-400' : 'text-blue-400')}>{s.status}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Clock className="w-2.5 h-2.5 text-zinc-500" />
-                        <span className="text-[9px] uppercase tracking-wider text-zinc-300">ETA: {new Date(s.eta).toLocaleDateString()}</span>
-                      </div>
-                      {isSelected && activeRoute.length > 0 && (
-                        <div className="flex items-center gap-2 border-t border-white/5 pt-1 mt-1">
-                          <Navigation2 className="w-2.5 h-2.5 text-bento-accent fill-current" />
-                          <div className="flex flex-col">
-                            <span className="text-[7px] text-zinc-500 uppercase tracking-tighter">NEXT WAYPOINT</span>
-                            <span className="text-[8px] text-white font-bold opacity-80">
-                              {(() => {
-                                const totalSegs = activeRoute.length - 1;
-                                const idx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
-                                const next = activeRoute[idx + 1];
-                                return next ? `${next.lat.toFixed(2)}°, ${next.lng.toFixed(2)}°` : 'ARRIVING';
-                              })()}
-                            </span>
+                        </Tooltip>
+                        <Popup>
+                          <div className="p-1 min-w-[150px] font-sans">
+                            <div className="flex justify-between items-center mb-2 gap-4">
+                              <span className="text-[10px] font-bold text-white uppercase tracking-widest font-mono">{s.id}</span>
+                              <span className="text-[8px] px-1.5 py-0.5 rounded-sm bg-white/10 border border-white/5 text-zinc-300 font-bold uppercase tracking-widest">{s.status}</span>
+                            </div>
+                            <div className="text-[10px] text-zinc-400 font-mono mb-2 border-b border-white/10 pb-1.5">{s.vessel}</div>
+                            <div className="grid grid-cols-2 gap-2 mb-2 bg-black/50 p-2 rounded border border-white/5">
+                              <div>
+                                <div className="text-[7px] text-zinc-500 uppercase font-mono tracking-widest mb-0.5">ETA</div>
+                                <div className="text-[9px] text-white font-bold">{new Date(s.eta).toLocaleDateString()}</div>
+                              </div>
+                              <div>
+                                <div className="text-[7px] text-zinc-500 uppercase font-mono tracking-widest mb-0.5">Risk</div>
+                                <div className="text-[9px] text-white font-bold">{s.risk ? Math.round(s.risk * 100) : 0}%</div>
+                              </div>
+                            </div>
+                            <div className="text-[8px] text-zinc-500 font-mono flex items-center justify-between uppercase tracking-widest">
+                              <span>{s.origin.split(',')[0]}</span>
+                              <span>&rarr;</span>
+                              <span>{s.destination.split(',')[0]}</span>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  </Tooltip>
-                  <Popup>
-                    <div className="p-1 min-w-[150px] font-sans">
-                      <div className="flex justify-between items-center mb-2 gap-4">
-                        <span className="text-[10px] font-bold text-white uppercase tracking-widest font-mono">{s.id}</span>
-                        <span className="text-[8px] px-1.5 py-0.5 rounded-sm bg-white/10 border border-white/5 text-zinc-300 font-bold uppercase tracking-widest">{s.status}</span>
-                      </div>
-                      <div className="text-[10px] text-zinc-400 font-mono mb-2 border-b border-white/10 pb-1.5">{s.vessel}</div>
-                      <div className="grid grid-cols-2 gap-2 mb-2 bg-black/50 p-2 rounded border border-white/5">
-                        <div>
-                          <div className="text-[7px] text-zinc-500 uppercase font-mono tracking-widest mb-0.5">ETA</div>
-                          <div className="text-[9px] text-white font-bold">{new Date(s.eta).toLocaleDateString()}</div>
-                        </div>
-                        <div>
-                          <div className="text-[7px] text-zinc-500 uppercase font-mono tracking-widest mb-0.5">Risk</div>
-                          <div className="text-[9px] text-white font-bold">{s.risk ? Math.round(s.risk * 100) : 0}%</div>
-                        </div>
-                      </div>
-                      <div className="text-[8px] text-zinc-500 font-mono flex items-center justify-between uppercase tracking-widest">
-                        <span>{s.origin.split(',')[0]}</span>
-                        <span>&rarr;</span>
-                        <span>{s.destination.split(',')[0]}</span>
-                      </div>
-                    </div>
-                  </Popup>
-                </Marker>
-              )}
+                        </Popup>
+                      </Marker>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </React.Fragment>
           );
         })}
