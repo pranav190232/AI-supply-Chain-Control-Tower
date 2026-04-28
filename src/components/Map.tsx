@@ -38,16 +38,26 @@ function getPointOnPath(path: Location[], progress: number) {
   if (progress >= 1) return path[path.length - 1];
   if (progress <= 0) return path[0];
   
-  // Normalize the path for interpolation so it doesn't wrap the wrong way
-  const normalized = normalizePoints(path);
-  const totalSegments = normalized.length - 1;
+  const continuous: Location[] = [{...path[0]}];
+  let lastLng = path[0].lng;
+  for (let i = 1; i < path.length; i++) {
+    let lng = path[i].lng;
+    while (lng - lastLng > 180) lng -= 360;
+    while (lng - lastLng < -180) lng += 360;
+    continuous.push({ lat: path[i].lat, lng: lng });
+    lastLng = lng;
+  }
+  
+  const totalSegments = continuous.length - 1;
   const segmentIndex = Math.min(Math.floor(progress * totalSegments), totalSegments - 1);
   const segmentProgress = (progress * totalSegments) - segmentIndex;
   
-  const p1 = { lat: normalized[segmentIndex][0], lng: normalized[segmentIndex][1] };
-  const p2 = { lat: normalized[segmentIndex + 1][0], lng: normalized[segmentIndex + 1][1] };
+  const p1 = { lat: continuous[segmentIndex].lat, lng: continuous[segmentIndex].lng };
+  const p2 = { lat: continuous[segmentIndex + 1].lat, lng: continuous[segmentIndex + 1].lng };
   
-  return interpolate(p1, p2, segmentProgress);
+  const interpolated = interpolate(p1, p2, segmentProgress);
+  let wrappedLng = ((interpolated.lng + 180) % 360 + 360) % 360 - 180;
+  return { lat: interpolated.lat, lng: wrappedLng };
 }
 
 function mercY(lat: number) {
@@ -69,22 +79,55 @@ function interpolate(p1: Location, p2: Location, progress: number) {
     lng: p1.lng + (p2.lng - p1.lng) * progress
   };
 }
-function normalizePoints(path: Location[]): [number, number][] {
+function splitLines(path: Location[]): [number, number][][] {
   if (path.length === 0) return [];
-  const normalized: [number, number][] = [];
+  const lines: [number, number][][] = [];
+  let currentLine: [number, number][] = [];
+  
+  let continuous: Location[] = [{...path[0]}];
   let lastLng = path[0].lng;
-  
-  normalized.push([path[0].lat, path[0].lng]);
-  
   for (let i = 1; i < path.length; i++) {
     let lng = path[i].lng;
-    // Normalize longitude relative to previous point to avoid long lines across map
     while (lng - lastLng > 180) lng -= 360;
     while (lng - lastLng < -180) lng += 360;
-    normalized.push([path[i].lat, lng]);
+    continuous.push({ lat: path[i].lat, lng: lng });
     lastLng = lng;
   }
-  return normalized;
+  
+  currentLine.push([continuous[0].lat, continuous[0].lng]);
+  
+  for (let i = 1; i < continuous.length; i++) {
+    const prev = continuous[i-1];
+    const curr = continuous[i];
+    
+    let prevOffset = Math.floor((prev.lng + 180) / 360) * 360;
+    let currOffset = Math.floor((curr.lng + 180) / 360) * 360;
+    
+    if (prevOffset !== currOffset) {
+      const crossingLng = prev.lng < curr.lng ? prevOffset + 180 : prevOffset - 180;
+      const fraction = Math.abs((crossingLng - prev.lng) / (curr.lng - prev.lng));
+      
+      const y1 = mercY(prev.lat);
+      const y2 = mercY(curr.lat);
+      const crossLat = invMercY(y1 + (y2 - y1) * fraction);
+      
+      currentLine.push([crossLat, crossingLng]);
+      lines.push(currentLine.map(p => [p[0], p[1] - prevOffset]));
+      
+      currentLine = [];
+      const newStart = prev.lng < curr.lng ? currOffset - 180 : currOffset + 180;
+      currentLine.push([crossLat, newStart]);
+    }
+    
+    currentLine.push([curr.lat, curr.lng]);
+  }
+  
+  if (currentLine.length > 0) {
+    const lastOffset = Math.floor((currentLine[currentLine.length - 1][1] + 180) / 360) * 360;
+    lines.push(currentLine.map(p => [p[0], p[1] - lastOffset]));
+  }
+  
+  return lines;
 }
 
 // Sub-component to sync map view when selected shipment changes
@@ -252,7 +295,7 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
     if (s.status === 'Delayed' || isHighRisk) return '#ef4444'; // Red
     if (s.status === 'At Risk') return '#f59e0b'; // Amber
     if (s.status === 'Rerouted') return '#a855f7'; // Purple
-    if (s.status === 'Arrived') return '#10b981'; // Green
+    if (s.status === 'Arrived') return '#38bdf8'; // Blue
     return '#38bdf8'; // Blue
   };
 
@@ -262,6 +305,7 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
         center={[20, 0]} 
         zoom={2} 
         scrollWheelZoom={true} 
+        worldCopyJump={true}
         className="w-full h-full"
         style={{ background: 'transparent' }}
       >
@@ -278,171 +322,156 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
           const isSelected = selectedId === s.id;
           const hasSelection = selectedId !== null;
           const activeRoute = s.newRoute || s.route;
-          const points = normalizePoints(activeRoute);
+          const routeSegments = splitLines(activeRoute);
+          const currentPos = getPointOnPath(activeRoute, s.progress);
           
-          // Interpolate current position on the normalized path for smooth motion
-          const currentPos = (() => {
-            if (points.length < 2) return points[0] ? { lat: points[0][0], lng: points[0][1] } : null;
-            if (s.progress >= 1) return { lat: points[points.length - 1][0], lng: points[points.length - 1][1] };
-            if (s.progress <= 0) return { lat: points[0][0], lng: points[0][1] };
-            
-            const totalSegs = points.length - 1;
-            const segIdx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
-            const segProg = (s.progress * totalSegs) - segIdx;
-            const start = points[segIdx];
-            const end = points[segIdx + 1];
-            
-            const y1 = mercY(start[0]);
-            const y2 = mercY(end[0]);
-            
-            return {
-              lat: invMercY(y1 + (y2 - y1) * segProg),
-              lng: start[1] + (end[1] - start[1]) * segProg
-            };
-          })();
+          let originalSegments: [number, number][][] = [];
+          if (s.newRoute && s.route) {
+            originalSegments = splitLines(s.route);
+          }
           
           const color = getStatusColor(s);
 
-          const copies = [-360, 0, 360];
-
           return (
             <React.Fragment key={s.id}>
-              {copies.map(offset => {
-                const offsetPoints = points.map(p => [p[0], p[1] + offset] as [number, number]);
-                const offsetPos = currentPos ? { lat: currentPos.lat, lng: currentPos.lng + offset } : null;
-                const offsetOriginal = s.newRoute ? normalizePoints(s.route).map(p => [p[0], p[1] + offset] as [number, number]) : null;
+              {/* Route lines */}
+              {routeSegments.map((segmentPoints, idx) => (
+                <React.Fragment key={`route-${s.id}-${idx}`}>
+                  {/* Route Highlight Glow */}
+                  {isSelected && (
+                    <>
+                      <Polyline 
+                        positions={segmentPoints}
+                        pathOptions={{
+                          color: color,
+                          weight: 24,
+                          opacity: 0.05,
+                          lineCap: 'round',
+                          lineJoin: 'round',
+                          className: 'route-glow-outer'
+                        }}
+                        interactive={false}
+                      />
+                      <Polyline 
+                        positions={segmentPoints}
+                        pathOptions={{
+                          color: color,
+                          weight: 12,
+                          opacity: 0.15,
+                          lineCap: 'round',
+                          lineJoin: 'round',
+                          className: 'route-glow-inner'
+                        }}
+                        interactive={false}
+                      />
+                    </>
+                  )}
 
-                return (
-                  <React.Fragment key={`${s.id}-${offset}`}>
-                    {/* Route Highlight Glow */}
-                    {isSelected && (
-                      <>
-                        <Polyline 
-                          positions={offsetPoints}
-                          pathOptions={{
-                            color: color,
-                            weight: 24,
-                            opacity: 0.05,
-                            lineCap: 'round',
-                            lineJoin: 'round',
-                            className: 'route-glow-outer'
-                          }}
-                          interactive={false}
-                        />
-                        <Polyline 
-                          positions={offsetPoints}
-                          pathOptions={{
-                            color: color,
-                            weight: 12,
-                            opacity: 0.15,
-                            lineCap: 'round',
-                            lineJoin: 'round',
-                            className: 'route-glow-inner'
-                          }}
-                          interactive={false}
-                        />
-                      </>
-                    )}
+                  {/* Main Route Polyline */}
+                  <Polyline 
+                    positions={segmentPoints}
+                    pathOptions={{
+                      color: isSelected ? color : '#3f3f46',
+                      weight: isSelected ? 4 : 2.5,
+                      dashArray: isSelected ? 'none' : '4, 8',
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                      opacity: isSelected ? 1 : (hasSelection ? 0.2 : 0.6),
+                      transition: 'opacity 0.3s ease'
+                    } as any}
+                    eventHandlers={{
+                      click: (e) => onSelect(s.id, [e.latlng.lat, e.latlng.lng])
+                    }}
+                  />
 
-                    {/* Main Route Polyline */}
-                    <Polyline 
-                      positions={offsetPoints}
+                  {/* Waypoint Dots */}
+                  {segmentPoints.map((pt, i) => (
+                    <CircleMarker
+                      key={`pt-${idx}-${i}`}
+                      center={pt}
+                      radius={isSelected ? 3.5 : 2.5}
                       pathOptions={{
-                        color: isSelected ? color : '#3f3f46', // Zinc-700 instead of 800 for better visibility
-                        weight: isSelected ? 4 : 2.5,
-                        dashArray: isSelected ? 'none' : '4, 8',
-                        lineCap: 'round',
-                        lineJoin: 'round',
-                        opacity: isSelected ? 1 : (hasSelection ? 0.2 : 0.6),
-                        transition: 'opacity 0.3s ease'
-                      } as any}
+                        fillColor: '#09090b',
+                        fillOpacity: 1,
+                        color: isSelected ? color : '#71717a',
+                        weight: 1.5,
+                        opacity: isSelected ? 1 : (hasSelection ? 0.3 : 0.6)
+                      }}
                       eventHandlers={{
-                        click: (e) => onSelect(s.id, [e.latlng.lat, e.latlng.lng])
+                        click: () => onSelect(s.id, [pt[0], pt[1]])
                       }}
                     />
+                  ))}
+                </React.Fragment>
+              ))}
 
-                    {/* Waypoint Dots */}
-                    {offsetPoints.map((pt, i) => (
-                      <CircleMarker
-                        key={`pt-${i}`}
-                        center={pt}
-                        radius={isSelected ? 3.5 : 2.5}
-                        pathOptions={{
-                          fillColor: '#09090b', // Zinc-950
-                          fillOpacity: 1,
-                          color: isSelected ? color : '#71717a', // Zinc-500
-                          weight: 1.5,
-                          opacity: isSelected ? 1 : (hasSelection ? 0.3 : 0.6)
-                        }}
-                        eventHandlers={{
-                          click: () => onSelect(s.id, [pt[0], pt[1]])
-                        }}
-                      />
-                    ))}
+              {/* Original Route if Rerouted */}
+              {originalSegments.length > 0 && isSelected && (
+                originalSegments.map((origSeg, idx) => (
+                  <Polyline 
+                    key={`orig-${s.id}-${idx}`}
+                    positions={origSeg}
+                    pathOptions={{
+                      color: '#a1a1aa',
+                      weight: 2,
+                      dashArray: '2, 4',
+                      opacity: 0.3
+                    }}
+                  />
+                ))
+              )}
 
-                    {/* Original Route if Rerouted */}
-                    {offsetOriginal && isSelected && (
-                      <Polyline 
-                        positions={offsetOriginal}
-                        pathOptions={{
-                          color: '#27272a',
-                          weight: 1,
-                          dashArray: '2, 4',
-                          opacity: 0.3
-                        }}
-                      />
-                    )}
+              {/* Focus Pulse for Selected Shipment */}
+              {isSelected && currentPos && (
+                <Circle 
+                  center={[currentPos.lat, currentPos.lng]}
+                  radius={120000}
+                  pathOptions={{
+                    fillColor: color,
+                    fillOpacity: 0.1,
+                    color: color,
+                    weight: 1,
+                    dashArray: '5, 5',
+                    className: 'animate-pulse'
+                  }}
+                />
+              )}
 
-                    {/* Focus Pulse for Selected Shipment */}
-                    {isSelected && offsetPos && (
-                      <Circle 
-                        center={[offsetPos.lat, offsetPos.lng]}
-                        radius={120000}
-                        pathOptions={{
-                          fillColor: color,
-                          fillOpacity: 0.1,
-                          color: color,
-                          weight: 1,
-                          dashArray: '5, 5',
-                          className: 'animate-pulse'
-                        }}
-                      />
-                    )}
+              {/* Next Waypoint Marker */}
+              {isSelected && routeSegments.length > 0 && s.progress < 1 && (
+                (() => {
+                  let next: [number, number] | null = null;
+                  if (routeSegments[0].length >= 2) {
+                    next = routeSegments[routeSegments.length - 1][routeSegments[routeSegments.length - 1].length - 1]; // Approximation
+                  }
+                  if (!next) return null;
+                  
+                  return (
+                    <Circle 
+                      center={[next[0], next[1]]}
+                      radius={30000}
+                      pathOptions={{
+                        fillColor: color,
+                        fillOpacity: 0.8,
+                        color: 'white',
+                        weight: 2,
+                        className: 'animate-pulse'
+                      }}
+                    >
+                      <Tooltip permanent direction="top" offset={[0, -10]} opacity={1}>
+                        <div className="flex flex-col items-center bg-black/90 backdrop-blur-sm border border-white/20 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-white uppercase tracking-tighter">
+                          <span>NEXT WAYPOINT</span>
+                        </div>
+                      </Tooltip>
+                    </Circle>
+                  );
+                })()
+              )}
 
-                    {/* Next Waypoint Marker */}
-                    {isSelected && points.length > 0 && s.progress < 1 && (
-                      (() => {
-                        const totalSegs = points.length - 1;
-                        const idx = Math.min(Math.floor(s.progress * totalSegs), totalSegs - 1);
-                        const next = offsetPoints[idx + 1];
-                        if (!next) return null;
-                        
-                        return (
-                          <Circle 
-                            center={[next[0], next[1]]}
-                            radius={30000}
-                            pathOptions={{
-                              fillColor: color,
-                              fillOpacity: 0.8,
-                              color: 'white',
-                              weight: 2,
-                              className: 'animate-pulse'
-                            }}
-                          >
-                            <Tooltip permanent direction="top" offset={[0, -10]} opacity={1}>
-                              <div className="flex flex-col items-center bg-black/90 backdrop-blur-sm border border-white/20 px-2 py-0.5 rounded text-[8px] font-mono font-bold text-white uppercase tracking-tighter">
-                                <span>NEXT WAYPOINT</span>
-                              </div>
-                            </Tooltip>
-                          </Circle>
-                        );
-                      })()
-                    )}
-
-                    {/* Moving Shipment Dot Indicator */}
-                    {offsetPos && (
+              {/* Moving Shipment Dot Indicator */}
+              {currentPos && (
                       <Marker 
-                        position={[offsetPos.lat, offsetPos.lng]}
+                        position={[currentPos.lat, currentPos.lng]}
                         eventHandlers={{ 
                           click: (e) => {
                             onSelect(s.id, [e.latlng.lat, e.latlng.lng]);
@@ -520,9 +549,6 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
                         </Popup>
                       </Marker>
                     )}
-                  </React.Fragment>
-                );
-              })}
             </React.Fragment>
           );
         })}
