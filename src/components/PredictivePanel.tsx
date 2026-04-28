@@ -46,7 +46,13 @@ export default function PredictivePanel({ shipment, onDecision, variant = 'full'
         setOptimization(null);
       }
     } catch (err) {
-      console.error(err);
+      if (err instanceof TypeError && err.message === 'Failed to fetch') {
+         console.warn("Prediction fetch failed (server possibly restarting).");
+      } else if (err instanceof SyntaxError && err.message.includes('Unexpected token')) {
+         console.warn("Prediction fetch failed (Received non-JSON response, server possibly initializing).");
+      } else {
+         console.error(err);
+      }
     } finally {
       setLoading(false);
     }
@@ -65,7 +71,13 @@ export default function PredictivePanel({ shipment, onDecision, variant = 'full'
       setScenarios(data);
       setShowScenarios(true);
     } catch (err) {
-      console.error(err);
+      if (err instanceof TypeError && err.message === 'Failed to fetch') {
+         console.warn("Scenarios fetch failed (server possibly restarting).");
+      } else if (err instanceof SyntaxError && err.message.includes('Unexpected token')) {
+         console.warn("Scenarios fetch failed (Received non-JSON response, server possibly initializing).");
+      } else {
+         console.error(err);
+      }
     } finally {
       setLoading(false);
     }

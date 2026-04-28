@@ -203,12 +203,24 @@ export default function Map({ shipments, selectedId, onSelect, optimizedRoute }:
       try {
         const url = selectedId ? `/api/weather?shipmentId=${selectedId}` : '/api/weather';
         const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          setWeather(data);
+        
+        const contentType = res.headers.get('content-type');
+        const isJson = contentType && contentType.includes('application/json');
+
+        if (res.ok && isJson) {
+           const data = await res.json();
+           setWeather(data);
+        } else if (!isJson) {
+           throw new Error('Received non-JSON response');
         }
       } catch (err) {
-        console.error("Weather fetch failed:", err);
+        if (err instanceof TypeError && err.message === 'Failed to fetch') {
+           console.warn("Weather fetch failed (server possibly restarting).");
+        } else if (err instanceof Error && err.message.includes('Received non-JSON response')) {
+           console.warn("Weather fetch failed (Received non-JSON response, server possibly initializing).");
+        } else {
+           console.error("Weather fetch failed:", err);
+        }
       }
     };
 

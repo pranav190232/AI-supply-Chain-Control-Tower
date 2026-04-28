@@ -9,7 +9,7 @@ import ShipmentList from './components/ShipmentList';
 import PredictivePanel from './components/PredictivePanel';
 import ChatBot from './components/ChatBot';
 import { Shipment, Location } from './types';
-import { Activity, Clock, Globe2, Layers, Bot, Navigation2, CheckCircle2, Maximize, Minimize, Play, Pause, FastForward, Timer } from 'lucide-react';
+import { Activity, Clock, Globe2, Layers, Bot, Navigation2, CheckCircle2, Maximize, Minimize, Play, Pause, FastForward, Timer, Package, Navigation } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from './lib/utils';
 
@@ -18,6 +18,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [optimizedRoute, setOptimizedRoute] = useState<Location[] | null>(null);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
+  const [maximizedSection, setMaximizedSection] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [simSpeed, setSimSpeed] = useState(1);
@@ -61,7 +62,14 @@ export default function App() {
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
 
-      console.error("Error fetching shipments:", err);
+      // Suppress 'Failed to fetch' error logs during polls (often caused by HMR/server restart)
+      if (err instanceof TypeError && err.message === 'Failed to fetch') {
+         console.warn("Shipments fetch failed (server possibly restarting).");
+      } else if (err instanceof Error && err.message.includes('Received non-JSON response')) {
+         console.warn("Shipments fetch failed (Received non-JSON response, server possibly initializing).");
+      } else {
+         console.error("Error fetching shipments:", err);
+      }
       
       // Automatic retry for typical network errors or early startup failures
       // Increase initial retries to 5 to handle slower Vite startup
@@ -91,12 +99,22 @@ export default function App() {
   useEffect(() => {
     // Initial fetch of simulation config
     fetch('/api/simulation/config')
-      .then(res => res.json())
+      .then(async (res) => {
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Received non-JSON response');
+        }
+        return res.json();
+      })
       .then(data => {
         setSimSpeed(data.speed);
         setIsSimPaused(data.isPaused);
       })
-      .catch(console.error);
+      .catch((err) => {
+        if (err.message !== 'Received non-JSON response') {
+           console.error(err);
+        }
+      });
   }, []);
 
   const updateSimConfig = async (updates: { speed?: number, isPaused?: boolean }) => {
@@ -287,7 +305,8 @@ export default function App() {
           "bento-card relative backdrop-blur-md shadow-[inset_0_1px_rgba(255,255,255,0.1)] border border-white/5 transition-all duration-500 ease-in-out p-0",
           isMapFullscreen 
             ? "fixed inset-0 z-[100] bg-[#020617] !col-auto !row-auto !border-none !rounded-none" 
-            : "col-span-3 row-span-2"
+            : "col-span-3 row-span-2",
+          maximizedSection && !isMapFullscreen && "opacity-20 scale-[0.98] blur-[2px] pointer-events-none"
         )}>
           <div className="absolute top-4 left-4 z-[9999] pointer-events-none space-y-1">
             <h3 className="text-white text-[11px] uppercase font-bold tracking-widest font-mono shadow-sm bg-black/40 px-2 py-1 rounded backdrop-blur-md border border-white/5 w-fit">Live Fleet Vectors</h3>
@@ -320,11 +339,25 @@ export default function App() {
         </div>
 
         {/* Fleet Card */}
-        <div className="bento-card col-span-1 row-span-2 bg-black/40">
-          <div className="bento-title">
-            <Layers className="w-3 h-3 text-bento-accent" /> ACTIVE FLEET
+        <div className={cn(
+          "bento-card flex flex-col bg-black/40 transition-all duration-700 ease-in-out",
+          maximizedSection === 'fleet' 
+            ? "fixed inset-0 m-4 md:m-12 z-[100] bg-black/95 !col-auto !row-auto shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/20" 
+            : "col-span-1 row-span-2",
+          maximizedSection && maximizedSection !== 'fleet' && "opacity-20 scale-[0.98] blur-[2px] pointer-events-none"
+        )}>
+          <div className="bento-title flex justify-between items-center group shrink-0">
+            <div className="flex items-center gap-2">
+              <Layers className="w-3 h-3 text-bento-accent" /> ACTIVE FLEET
+            </div>
+            <button 
+              onClick={() => setMaximizedSection(maximizedSection === 'fleet' ? null : 'fleet')}
+              className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors"
+            >
+              {maximizedSection === 'fleet' ? <Minimize className="w-3 h-3 text-bento-accent" /> : <Maximize className="w-3 h-3 text-zinc-600 group-hover:text-white" />}
+            </button>
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden min-h-0 bg-black/20">
             <ShipmentList 
               shipments={shipments} 
               selectedId={selectedId} 
@@ -337,22 +370,38 @@ export default function App() {
         </div>
         
         {/* Alerts Card */}
-        <div className="bento-card col-span-1 border-bento-danger/30 relative overflow-hidden row-start-3">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-bento-danger/5 rounded-full blur-[40px] pointer-events-none" />
-          <div className="bento-title text-bento-danger">
-            <Activity className="w-3 h-3 animate-pulse" /> CRITICAL DISRUPTIONS
+        <div className={cn(
+          "bento-card flex flex-col border-bento-danger/30 relative overflow-hidden transition-all duration-700 ease-in-out",
+          maximizedSection === 'alerts'
+            ? "fixed inset-0 m-4 md:m-12 z-[100] bg-black/95 !col-auto !row-auto shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-bento-danger/50"
+            : "col-span-1 row-start-3",
+          maximizedSection && maximizedSection !== 'alerts' && "opacity-20 scale-[0.98] blur-[2px] pointer-events-none"
+        )}>
+          <div className="absolute top-0 right-0 w-64 h-64 bg-bento-danger/5 rounded-full blur-[60px] pointer-events-none" />
+          <div className="bento-title text-bento-danger flex justify-between items-center group shrink-0">
+            <div className="flex items-center gap-2">
+              <Activity className="w-3 h-3 animate-pulse" /> CRITICAL DISRUPTIONS
+            </div>
+            <button 
+              onClick={() => setMaximizedSection(maximizedSection === 'alerts' ? null : 'alerts')}
+              className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors"
+            >
+              {maximizedSection === 'alerts' ? <Minimize className="w-3 h-3 text-bento-danger" /> : <Maximize className="w-3 h-3 text-zinc-600 group-hover:text-white" />}
+            </button>
           </div>
-          <div className="flex flex-col gap-2 overflow-y-auto z-10 relative pr-1 pb-1">
+          <div className="flex flex-col gap-2 overflow-y-auto z-10 relative pr-1 pb-1 flex-1 min-h-0 bg-black/20 p-2">
             {shipments.filter(s => s.disruption).length > 0 ? (
               shipments.filter(s => s.disruption).map(s => (
                 <div 
                   key={`disruption-${s.id}`}
                   className={cn(
-                    "p-2.5 rounded border border-white/5 shadow-inner",
+                    "p-3 rounded border border-white/5 shadow-inner transition-all hover:bg-white/5 cursor-pointer",
+                    selectedId === s.id && "ring-1 ring-bento-danger bg-bento-danger/5",
                     s.disruption?.severity === 'critical' 
                       ? "bg-bento-danger/10 border-bento-danger/30" 
                       : "bg-bento-warning/10 border-bento-warning/30"
                   )}
+                  onClick={() => setSelectedId(s.id)}
                 >
                   <div className="flex justify-between items-start mb-1.5">
                     <div className={cn(
@@ -381,73 +430,124 @@ export default function App() {
         </div>
 
         {/* Manifest Detail Card */}
-        <div className="bento-card col-span-1 row-start-3">
-           <div className="bento-title">
-             <Activity className="w-3 h-3 text-bento-accent animate-pulse" /> UNIT MANIFEST
+        <div className={cn(
+          "bento-card flex flex-col transition-all duration-700 ease-in-out",
+          maximizedSection === 'manifest'
+            ? "fixed inset-0 m-4 md:m-12 z-[100] bg-black/95 !col-auto !row-auto shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/20"
+            : "col-span-1 row-start-3",
+          maximizedSection && maximizedSection !== 'manifest' && "opacity-20 scale-[0.98] blur-[2px] pointer-events-none"
+        )}>
+           <div className="bento-title flex justify-between items-center group shrink-0">
+             <div className="flex items-center gap-2">
+               <Activity className="w-3 h-3 text-bento-accent animate-pulse" /> UNIT MANIFEST
+             </div>
+             <button 
+                onClick={() => setMaximizedSection(maximizedSection === 'manifest' ? null : 'manifest')}
+                className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors"
+              >
+                {maximizedSection === 'manifest' ? <Minimize className="w-3 h-3 text-bento-accent" /> : <Maximize className="w-3 h-3 text-zinc-600 group-hover:text-white" />}
+              </button>
            </div>
-           <div className="flex-1 overflow-y-auto scrollbar-hide py-1">
+           <div className={cn("flex-1 overflow-y-auto scrollbar-hide min-h-0 bg-black/20", maximizedSection === 'manifest' ? "py-6 px-6" : "py-3 px-3")}>
               {selectedShipment ? (
-                <div className="space-y-3">
-                   <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-black/30 p-2 rounded border border-white/5 shadow-inner">
-                        <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-widest mb-1">Carrier</div>
-                        <div className="text-[10px] text-white font-bold tracking-wider truncate">{selectedShipment.carrier}</div>
+                <div className={cn("space-y-3 mx-auto", maximizedSection === 'manifest' ? "max-w-3xl" : "w-full")}>
+                   <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-black/40 p-3 rounded border border-white/5 shadow-2xl flex flex-col justify-center">
+                        <div className={cn("text-zinc-500 uppercase font-mono tracking-widest", maximizedSection === 'manifest' ? "text-[10px] mb-2" : "text-[8px] mb-1")}>Carrier</div>
+                        <div className={cn("text-white font-bold tracking-wider truncate", maximizedSection === 'manifest' ? "text-[20px]" : "text-[12px]")} title={selectedShipment.carrier}>{selectedShipment.carrier}</div>
                       </div>
-                      <div className="bg-black/30 p-2 rounded border border-white/5 shadow-inner">
-                        <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-widest mb-1">Vessel</div>
-                        <div className="text-[10px] text-white font-bold tracking-wider truncate">{selectedShipment.vessel}</div>
+                      <div className="bg-black/40 p-3 rounded border border-white/5 shadow-2xl flex flex-col justify-center overflow-hidden">
+                        <div className={cn("text-zinc-500 uppercase font-mono tracking-widest", maximizedSection === 'manifest' ? "text-[10px] mb-2" : "text-[8px] mb-1")}>Vessel Name</div>
+                        <div className={cn("text-white font-bold tracking-wider truncate break-all", maximizedSection === 'manifest' ? "text-[20px]" : "text-[12px]")} title={selectedShipment.vessel}>{selectedShipment.vessel}</div>
                       </div>
                    </div>
-                   <div className="bg-black/30 w-full p-2 rounded border border-white/5 shadow-inner flex justify-between items-center">
+                   <div className={cn("bg-black/40 w-full rounded border border-white/5 shadow-2xl flex justify-between items-center group relative overflow-hidden", maximizedSection === 'manifest' ? "p-6" : "p-3 flex-col items-start gap-2")}>
+                      <div className="absolute inset-0 bg-gradient-to-r from-bento-accent/5 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" />
                       <div>
-                        <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-widest mb-1">Cargo Profile</div>
-                        <div className="text-[10px] text-bento-accent font-bold tracking-wider uppercase">{selectedShipment.cargoType}</div>
+                        <div className={cn("text-zinc-500 uppercase font-mono tracking-widest", maximizedSection === 'manifest' ? "text-[10px] mb-2" : "text-[8px] mb-1")}>Active Cargo Profile</div>
+                        <div className={cn("text-bento-accent font-bold tracking-wider uppercase drop-shadow-[0_0_10px_rgba(56,189,248,0.3)] font-mono", maximizedSection === 'manifest' ? "text-[22px]" : "text-[13px]")}>{selectedShipment.cargoType}</div>
                       </div>
-                      <div className="text-[10px] font-mono text-zinc-600 bg-white/5 px-2 py-1 rounded">
-                         UID: {selectedShipment.id.replace('-', '')}
+                      <div className={cn("font-mono text-zinc-400 bg-white/5 rounded border border-white/10 shrink-0", maximizedSection === 'manifest' ? "text-[14px] px-4 py-2" : "text-[9px] px-2 py-1 relative z-10 w-full truncate")}>
+                         UID: {selectedShipment.id}
                       </div>
                    </div>
-                   <div className="grid grid-cols-2 gap-2">
-                     <div className="bg-black/30 p-2 rounded border border-white/5 shadow-inner">
-                        <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-widest mb-1 flex items-center gap-1">Origin</div>
-                        <div className="text-[10px] text-zinc-300 font-mono tracking-tight leading-tight truncate" title={selectedShipment.origin}>{selectedShipment.origin.split(',')[0]}</div>
+                   <div className="grid grid-cols-2 gap-3">
+                     <div className="bg-black/40 p-3 rounded border border-white/5 shadow-2xl overflow-hidden">
+                        <div className={cn("text-zinc-500 uppercase font-mono tracking-widest flex items-center gap-2", maximizedSection === 'manifest' ? "text-[10px] mb-2" : "text-[8px] mb-1")}><Navigation className="w-3 h-3" /> Origin Point</div>
+                        <div className={cn("text-zinc-300 font-mono tracking-tight leading-relaxed uppercase truncate", maximizedSection === 'manifest' ? "text-[15px]" : "text-[10px]")} title={selectedShipment.origin}>{selectedShipment.origin}</div>
                      </div>
-                     <div className="bg-black/30 p-2 rounded border border-white/5 shadow-inner">
-                        <div className="text-[8px] text-zinc-500 uppercase font-mono tracking-widest mb-1">Destination</div>
-                        <div className="text-[10px] text-zinc-300 font-mono tracking-tight leading-tight truncate" title={selectedShipment.destination}>{selectedShipment.destination.split(',')[0]}</div>
+                     <div className="bg-black/40 p-3 rounded border border-white/5 shadow-2xl overflow-hidden">
+                        <div className={cn("text-zinc-500 uppercase font-mono tracking-widest flex items-center gap-2", maximizedSection === 'manifest' ? "text-[10px] mb-2" : "text-[8px] mb-1")}><Navigation className="w-3 h-3 rotate-90" /> Destination</div>
+                        <div className={cn("text-zinc-300 font-mono tracking-tight leading-relaxed uppercase truncate", maximizedSection === 'manifest' ? "text-[15px]" : "text-[10px]")} title={selectedShipment.destination}>{selectedShipment.destination}</div>
                      </div>
                    </div>
-                   {selectedShipment.timeToReach && (
-                     <div className="bg-bento-accent/10 p-2 rounded border border-bento-accent/20 flex justify-between items-center w-full">
-                        <div className="text-[8px] text-bento-accent uppercase font-mono tracking-widest mb-1 shadow-sm">Target Acc. T-Minus</div>
-                        <div className="text-[10px] text-white font-bold font-mono px-2 py-0.5 bg-black/40 rounded border border-bento-accent/10">{selectedShipment.timeToReach}</div>
+                   {selectedShipment.disruption && (
+                     <div className={cn("bg-bento-danger/10 rounded border border-bento-danger/30 shadow-2xl relative overflow-hidden", maximizedSection === 'manifest' ? "p-5" : "p-3")}>
+                        <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(239,68,68,0.05)_50%,transparent_75%,transparent_100%)] bg-[length:20px_20px] animate-[slide_1s_linear_infinite]" />
+                        <div className={cn("text-bento-danger uppercase font-mono tracking-widest flex items-center gap-2 font-bold animate-pulse relative z-10", maximizedSection === 'manifest' ? "text-[11px] mb-3" : "text-[9px] mb-2")}>
+                          <Activity className="w-3 h-3" /> System Alert: Active Disruption
+                        </div>
+                        <div className={cn("text-red-200/90 font-mono italic relative z-10", maximizedSection === 'manifest' ? "text-[14px]" : "text-[10px] leading-tight line-clamp-2")}>
+                          {`> `}{selectedShipment.disruption.description}
+                        </div>
                      </div>
                    )}
                 </div>
               ) : (
-                <div className="h-full flex items-center justify-center text-[10px] text-zinc-600 font-mono uppercase tracking-[0.2em]">Awaiting Target</div>
+                <div className="h-full flex flex-col items-center justify-center text-zinc-600 gap-4 opacity-30 py-12">
+                  <Package className="w-16 h-16 stroke-[0.5px] animate-pulse" />
+                  <div className={cn("font-mono uppercase tracking-[0.4em] text-center", maximizedSection === 'manifest' ? "text-[14px]" : "text-[10px]")}>Establish Unit<br/>Uplink To Continue</div>
+                </div>
               )}
            </div>
         </div>
 
         {/* Predictive & Optimization Engine Combined */}
-        <div className="bento-card col-span-1 row-start-3">
-          <div className="bento-title">
-             <Navigation2 className="w-3 h-3 text-bento-accent" /> PREDICTIVE OPTIMIZATION
+        <div className={cn(
+          "bento-card flex flex-col transition-all duration-700 ease-in-out",
+          maximizedSection === 'optimization'
+            ? "fixed inset-0 m-4 md:m-12 z-[100] bg-black/95 !col-auto !row-auto shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/20"
+            : "col-span-1 row-start-3",
+          maximizedSection && maximizedSection !== 'optimization' && "opacity-20 scale-[0.98] blur-[2px] pointer-events-none"
+        )}>
+          <div className="bento-title flex justify-between items-center group shrink-0">
+             <div className="flex items-center gap-2">
+               <Navigation2 className="w-3 h-3 text-bento-accent" /> PREDICTIVE OPTIMIZATION
+             </div>
+             <button 
+                onClick={() => setMaximizedSection(maximizedSection === 'optimization' ? null : 'optimization')}
+                className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors"
+              >
+                {maximizedSection === 'optimization' ? <Minimize className="w-3 h-3 text-bento-accent" /> : <Maximize className="w-3 h-3 text-zinc-600 group-hover:text-white" />}
+              </button>
           </div>
-          <div className="flex-1 overflow-y-auto scrollbar-hide">
+          <div className="flex-1 overflow-y-auto scrollbar-hide min-h-0 bg-black/20">
              <PredictivePanel 
                 shipment={selectedShipment} 
                 onDecision={handleDecision}
                 variant="full"
-              />
+             />
           </div>
         </div>
 
         {/* AI Assistant */}
-        <div className="bento-card col-span-1 border-white/5 bg-gradient-to-b from-[#0b101e]/80 to-transparent row-start-3">
-          <div className="bento-title">
-            <Bot className="w-3 h-3 text-bento-accent" /> LOGISTICS SYS_AI
+        <div className={cn(
+          "bento-card flex flex-col border-white/5 bg-gradient-to-b from-[#0b101e]/80 to-transparent transition-all duration-700 ease-in-out",
+          maximizedSection === 'ai'
+            ? "fixed inset-0 m-4 md:m-12 z-[100] bg-[#020617]/95 !col-auto !row-auto shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/20"
+            : "col-span-1 row-start-3",
+          maximizedSection && maximizedSection !== 'ai' && "opacity-20 scale-[0.98] blur-[2px] pointer-events-none"
+        )}>
+          <div className="bento-title flex justify-between items-center group shrink-0">
+            <div className="flex items-center gap-2">
+              <Bot className="w-3 h-3 text-bento-accent" /> LOGISTICS SYS_AI
+            </div>
+            <button 
+                onClick={() => setMaximizedSection(maximizedSection === 'ai' ? null : 'ai')}
+                className="p-1 hover:bg-white/10 rounded cursor-pointer transition-colors"
+              >
+                {maximizedSection === 'ai' ? <Minimize className="w-3 h-3 text-bento-accent" /> : <Maximize className="w-3 h-3 text-zinc-600 group-hover:text-white" />}
+              </button>
           </div>
           <div className="flex-1 min-h-0">
             <ChatBot shipments={shipments} inline />
